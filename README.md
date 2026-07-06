@@ -286,9 +286,3 @@ There aren't any yet. Adding smoke tests for `world_to_pixel()` and `filter_even
 
 ---
 
-## Credits
-
-- **Built by:** Assignment submission for LILA Games' Product Engineer role
-- **Data:** LILA BLACK production telemetry (Feb 10–14, 2026)
-- **Minimap images:** LILA Games
-- **Frameworks:** Streamlit, Plotly, pandas, PyArrow
