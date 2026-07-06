@@ -1,8 +1,13 @@
 # LILA BLACK — Player Journey Visualizer
 
-A web-based tool for the LILA Games Level Design team to explore player behavior on the maps of **LILA BLACK**, an extraction shooter. Turns raw telemetry into three interactive views: **match playback**, **aggregate heatmaps**, and **per-player profiles**.
+# IMP Note:-On the free tier of Streamlit Community Cloud, apps go to sleep after a period of inactivity to save resources.
+# Here's what happens:
+  # inactive app → After some time with no visitors, the app goes to sleep.
+  # (click-on:yes get this backup when opening app link its it went to sleep) First visitor afterward → The app wakes up automatically, but it can take 10–60 seconds (sometimes longer if dependencies are large).
+  
+# A web-based tool for the LILA Games Level Design team to explore player behavior on the maps of **LILA BLACK**, an extraction shooter. Turns raw telemetry into three interactive views: **match playback**, **aggregate heatmaps**, and **per-player profiles**.
 
-> **Live app:** _paste your Streamlit Community Cloud URL here after deploy_
+> **Live app:** https://lila-visualizer-sk44ahuzqbbeogow5nfakd.streamlit.app/?map=AmbroseValley&date=All&mode=All+players
 
 ## What it does
 
@@ -21,126 +26,275 @@ That single set of choices scopes everything in the three main tabs:
 | 👤 **Player Details** | In aggregate mode: a leaderboard of the most-active players on this map/date. In specific-player mode: full profile of the selected player — event breakdown and a per-map activity heatmap. |
 
 Advanced filters (event types, include/exclude bots) are one click away in a collapsed panel — powerful when needed, out of the way when not.
-
-## Architecture
-
-```
-lila-visualizer/
-├── app.py                # Streamlit entry point (all UI, no logic)
-├── src/
-│   ├── config.py         # Map metadata, event styling, heatmap presets
-│   ├── coords.py         # world (x,z) -> minimap pixel (x,y)
-│   ├── data.py           # Load, cache, filter (single source of truth)
-│   └── plots.py          # Plotly figure builders
-├── data/
-│   ├── all_events.parquet    # 1.6 MB, pre-processed from 1,243 raw files
-│   └── minimaps/             # 3 minimap images
-├── .streamlit/config.toml    # Dark theme
-├── requirements.txt
-└── README.md             # (this file)
-```
-
-**Data pipeline (offline, run once):**
-1. `preprocess.py` walks the `February_XX/` folders, reads each `.nakama-0` parquet file, decodes the `event` bytes column, tags rows with their source day, and writes a single **`all_events.parquet`** (~1.6 MB with zstd + categorical dtypes).
-2. That single file is committed to the repo alongside the app.
-
-**Runtime pipeline (in the app):**
-1. `load_events()` reads the combined parquet once, cached with `@st.cache_data`, and:
-   - Adds `is_bot` (numeric `user_id` ⇒ bot; UUID ⇒ human).
-   - Adds `match_progress ∈ [0,1]` — each event's normalized position within its match. Absolute `ts` values are compressed (~400 ms/match in this dataset), so **normalized progress is the only meaningful time coordinate**; the timeline slider operates in this space.
-   - Attaches pre-computed pixel coordinates (`px`, `py`) using each map's config, so plotting is a straight lookup — no math on the render path.
-2. Sidebar filters produce a single `df_scoped` DataFrame that the tabs read from.
-3. Each tab builds Plotly figures via `src/plots.py`.
-
-**Why one big parquet at the root instead of a database?**
-- The whole dataset is 89k rows / 1.6 MB — smaller than most container images. A database would add ops burden with no query-latency payoff.
-- Streamlit Community Cloud has no persistent storage anyway.
+---
 
 ## Tech stack
 
 | Layer | Choice | Why |
 |---|---|---|
-| Runtime | **Python 3.11 + Streamlit** | Rubric weights "end-to-end execution" heavily. Streamlit ships a working UI, filters, and deploy pipeline in hours, not days. Same language as the data pipeline — no context switching between Python analysis and JS rendering. |
-| Charts | **Plotly** | Interactive out of the box (zoom, pan, hover), first-class support for layered images + scatter + `Histogram2d`, and animation-friendly. Works natively inside Streamlit via `st.plotly_chart`. |
-| Data format | **Apache Parquet** | Same as the source data; columnar; small on disk (1.6 MB compressed) yet ~89k rows / 8 event types are trivially in-memory. |
-| Hosting | **Streamlit Community Cloud** | Free, one-click GitHub-connected deploy, HTTPS by default, no infra to manage. |
+| Runtime | **Python 3.11+** | Same language as the data pipeline |
+| App framework | **Streamlit 1.42+** | Ships working UI + deploy in minutes |
+| Charts | **Plotly 5.20+** | Interactive canvas, `Histogram2d`, native animation frames |
+| Data | **Pandas 2.0+ / PyArrow 14+** | Fast in-memory columnar ops on Parquet |
+| Images | **Pillow 10+** | Minimap thumbnail generation |
+| Numerics | **NumPy 1.24+** | Vectorized coord conversion |
+| Hosting | **Streamlit Community Cloud** | Free, GitHub-connected, HTTPS by default |
 
-**Why not React?** A polished React front-end was considered. It would look nicer, but for an internal tool used by ~5 Level Designers, the extra ~5–10 hours of build/hosting overhead buys aesthetics rather than function. The rubric explicitly favors "polished tool with 4 well-executed features over messy tool with 10 half-working ones" — Streamlit lets that trade go the right way.
+Full dependency list in [`requirements.txt`](./requirements.txt).
 
-**Why not a full DB?** The dataset fits in memory. A DB would slow iteration without helping the user.
+---
 
-## Coordinate mapping
+## Features
 
-Straight implementation of the README formula, vectorized with NumPy:
+- **🔥 Heatmap** — 7 preset overlays (traffic, loot, bot combat, storm deaths, etc.) with adjustable grid + map dim
+- **🗺️ Coverage** — grid-based dead-zone finder with `coverage %` stat
+- **🎬 Match Playback** — animated timeline with ▶ Play / ⏸ Pause / ⏮ Reset (native Plotly frames, smooth client-side)
+- **👤 Players** — ranked leaderboard in aggregate mode, full profile in specific-player mode
+- **🧑 Humans vs 🤖 Bots** — visually distinct paths + text labels everywhere
+- **🔗 Shareable URLs** — filter state encoded in query params, send a link → recipient sees the same view
 
-```python
-u = (world_x - origin_x) / scale
-v = (world_z - origin_z) / scale
-pixel_x = u * 1024
-pixel_y = (1 - v) * 1024      # image origin is top-left, so Y is flipped
-```
+Details in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
-Verified two ways: (1) the worked example from the README (`(-301.45, -355.55)` on Ambrose Valley → `(78, 890)`) matches to the pixel; (2) **100% of the 89k events** across all three maps land inside the `[0, 1024] × [0, 1024]` pixel box, so no rows are silently clipped.
+---
 
-The `y` column (elevation) is intentionally ignored — the tool is 2D.
+## Prerequisites
 
-## Data nuances handled
+- Python 3.11 or newer
+- pip
+- ~50 MB free disk space (mostly the minimap images)
 
-- **`event` bytes → strings** decoded during preprocessing.
-- **Files without `.parquet` extension** — the loader accepts them as-is.
-- **Bot vs. human detection** — regex on `user_id`: numeric ⇒ bot, UUID ⇒ human. Matches the README convention exactly.
-- **Compressed timestamps** — `ts` values span only ~400 ms per match in this dataset. The tool normalizes to `match_progress ∈ [0, 1]` so the timeline slider is meaningful regardless of the underlying clock scale. Documented in the code so a future contributor doesn't try to interpret `ts` as wall-clock seconds.
-- **Feb 14 partial day** — an info banner appears in the sidebar when it's included in the filter, respecting the README caveat.
-- **Sparse human PvP** — this batch contains only **3** `Kill` and **3** `Killed` events across 89k rows. The heatmap overlays are built around the *actually present* signal (bot combat, loot, storm) so the tool is useful on the data we have, not the data we wish we had.
-- **Most matches contain 1 human player file** (median = 1; 52 of 796 matches have any bot files). The "reconstruct a full match" concept from the README is therefore approximated by "reconstruct all files that share a `match_id`" — usually a single-player journey.
+That's it. No database, no Node, no Docker.
 
-## Product decisions (assumptions & trade-offs)
+---
 
-1. **Guided flow, not a wall of filters.** Level Designers rarely want to slice across multiple maps at once — they focus on one map at a time. Making map + date single-select radios (instead of multi-select checkboxes) reduces cognitive load and matches actual workflow. The "view mode" toggle (All players / Specific player) further narrows what needs to be on screen.
-2. **Timeline uses normalized progress, not seconds.** The synthetic `ts` values make absolute time useless. Progress % is what a Level Designer would actually want anyway ("show me events in the first 20% of the match" is more natural than "the first 80ms").
-3. **Discrete event markers use distinct symbols + colors.** A crosshair for a kill, an X for a death, a star for loot, a diamond for storm death. Legible at a glance without reading a legend.
-4. **Heatmap dims the minimap by default (55% dim).** Level Designers keep the map as a mental anchor while the heat colors pop. The dim level is a slider in case they want it brighter.
-5. **Player Details is context-aware.** In aggregate mode it shows a *leaderboard* of top players (useful for finding whom to drill into). In specific-player mode it shows the full profile. The tab exists in both modes but earns its keep in each.
-6. **Advanced filters are collapsed by default.** Event-type checkboxes and bot inclusion live in an expander — power-user territory that shouldn't clutter the primary flow.
-7. **Bot data shown as dotted lines / muted colors** so the eye separates human traffic from AI traffic at a glance.
-8. **Context card at the top** always reads "Map • Date • *audience*" with headline metrics (events / matches / humans / bots) — the user never has to guess what they're looking at.
-
-## Running locally
+## Local setup
 
 ```bash
-git clone <this repo>
+# 1. Clone the repo
+git clone https://github.com/YOUR_USERNAME/lila-visualizer.git
 cd lila-visualizer
-python3 -m venv .venv && source .venv/bin/activate   # (or Windows equivalent)
+
+# 2. (Recommended) create a virtual environment
+python -m venv .venv
+# macOS / Linux:
+source .venv/bin/activate
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+
+# 3. Install dependencies
 pip install -r requirements.txt
+
+# 4. Run the app
 streamlit run app.py
 ```
 
-Open <http://localhost:8501>.
+The app opens at **http://localhost:8501**. First load takes ~2 seconds while the parquet is cached.
 
-## Deploying to Streamlit Community Cloud
+### Windows without a virtual env
 
-1. Push this repo to GitHub (public repo, or private with a connected account).
-2. Sign in at <https://share.streamlit.io> with GitHub.
-3. Click **New app**, pick this repo, entry point `app.py`, click **Deploy**.
-4. First build takes ~2 min. Subsequent redeploys are automatic on `git push`.
+If you're on Windows and the `streamlit` command isn't found after install (common with Microsoft Store Python):
 
-The parquet and minimap images live inside `data/` and are part of the repo — no external storage is required, so the deploy is stateless.
+```powershell
+python -m streamlit run app.py
+```
 
-## What I'd add next (if I had more time)
+Works identically.
 
-- **Auto-play button** on the timeline — currently the slider is manual scrub only. Streamlit's rerun model makes real-time animation possible but fiddly; a polished autoplay needs care.
-- **"Compare two matches side-by-side"** — for A/B'ing before/after a map balance change.
-- **POI overlays** — Grand Rift's minimap already has labeled POIs baked in; the other two don't. Letting a Level Designer annotate zones and see per-zone stats would be powerful.
-- **Storm-front reconstruction** — the storm is one-directional; with enough matches on a map, you could infer its axis of advance from the spatial distribution of `KilledByStorm` events over match progress.
-- **Session-based caching** for filter results — the current cache is on `load_events` only; filter results are recomputed each interaction. Fine at 89k rows, but worth revisiting at 10M.
+---
 
-## Repo layout — what each file does
+## Environment variables
 
-| File | Responsibility |
-|---|---|
-| `app.py` | UI layout, sidebar, tabs. No data logic. |
-| `src/config.py` | Map metadata, event styling (colors/symbols), heatmap preset definitions. Everything a designer might want to tweak lives here. |
-| `src/coords.py` | Pure math: `world_to_pixel()` and `attach_pixel_coords()`. |
-| `src/data.py` | Load / cache / filter / summarize. Stateless functions, easy to unit-test. |
-| `src/plots.py` | Plotly figure builders. One function per view type. |
-| `preprocess.py` | (Offline, one-shot) Combines 1,243 `.nakama-0` files into `all_events.parquet`. Not needed at runtime. |
+**None required for the base app.** The tool reads from a local Parquet file and needs no external services.
+
+Optional variables that Streamlit itself respects:
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `STREAMLIT_SERVER_PORT` | Local port for `streamlit run` | `8501` |
+| `STREAMLIT_SERVER_HEADLESS` | Skip opening browser on start | `false` |
+| `STREAMLIT_BROWSER_GATHER_USAGE_STATS` | Anonymous telemetry to Streamlit | `false` (already off) |
+
+Nothing sensitive. No API keys. No database URLs. Nothing you need to hide.
+
+---
+
+## Project structure
+
+```
+lila-visualizer/
+├── app.py                   # Streamlit entry point — UI only, no data logic
+├── src/
+│   ├── __init__.py
+│   ├── config.py            # Map coords, event styles, heatmap presets
+│   ├── coords.py            # World (x,z) → pixel (x,y) math
+│   ├── data.py              # Load / cache / filter / summarize
+│   └── plots.py             # Plotly figure builders
+├── data/
+│   ├── all_events.parquet   # 1.6 MB, 89k rows — pre-combined
+│   └── minimaps/            # 3 minimap images
+├── preprocess.py            # Offline: 1,243 raw files → all_events.parquet
+├── requirements.txt
+├── .streamlit/
+│   └── config.toml          # Dark theme
+├── .gitignore
+├── README.md                # ← you are here
+├── ARCHITECTURE.md          # One-page architecture doc
+├── INSIGHTS.md              # 5 data-backed findings
+└── PRD.md                   # Product requirements (RICE + MoSCoW + wireframes)
+```
+
+---
+
+## Regenerating the dataset (optional)
+
+If you have access to the raw `.nakama-0` files from the game server, you can regenerate the bundled Parquet:
+
+```bash
+# Place your February_10/ ... February_14/ folders anywhere, then edit
+# preprocess.py to point at that directory, and:
+python preprocess.py
+```
+
+Output: `all_events.parquet` in the current directory, plus a `summary.csv` with per-day counts for sanity-checking.
+
+**Not required for normal use** — the repo ships with a pre-generated Parquet.
+
+---
+
+## Deployment (Streamlit Community Cloud)
+
+1. Push this repo to **GitHub** (public repo for free tier)
+2. Go to https://share.streamlit.io → sign in with GitHub
+3. Click **Create app**
+   - Repository: `YOUR_USERNAME/lila-visualizer`
+   - Branch: `main`
+   - Main file path: `app.py`
+4. Click **Deploy**
+
+First build takes ~2 min. Subsequent `git push` triggers auto-redeploy in ~30 sec.
+
+The parquet and minimaps are bundled in the repo, so no external storage setup is needed.
+
+### Deploying elsewhere
+
+Any Streamlit-compatible host works. For **Render** or **Fly.io**:
+
+```bash
+# Start command:
+streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+```
+
+For **Docker**:
+
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY . .
+RUN pip install -r requirements.txt
+EXPOSE 8501
+CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"]
+```
+
+---
+
+## Data schema
+
+Each row in `all_events.parquet`:
+
+| Column | Type | Description |
+|---|---|---|
+| `user_id` | string | UUID = human, numeric = bot |
+| `match_id` | string | Unique game session ID |
+| `map_id` | category | `AmbroseValley` / `GrandRift` / `Lockdown` |
+| `x, y, z` | float32 | World coordinates (`y` = elevation, ignored in 2D views) |
+| `ts` | timestamp(ms) | Compressed within-match time — see `ARCHITECTURE.md` |
+| `event` | category | One of 8 event types (see [`src/config.py`](./src/config.py)) |
+| `is_bot` | bool | Added at load time — `user_id.isdigit()` |
+| `day` | category | Source folder — `February_10` … `February_14` |
+
+Derived columns added at runtime (in `src/data.py::load_events`):
+
+- `match_progress` — normalized 0..1 within-match time
+- `px, py` — pre-computed pixel coordinates on the 1024×1024 minimap
+
+---
+
+## Development
+
+### Making changes
+
+1. Edit files locally
+2. Restart Streamlit (or just save — auto-reload is on by default in dev mode)
+3. Browser refreshes automatically
+
+### Adding a new map
+
+Edit `src/config.py::MAP_CONFIG`:
+
+```python
+MAP_CONFIG["YourNewMap"] = {
+    "scale": 800,
+    "origin_x": -400,
+    "origin_z": -400,
+    "image": "YourNewMap_Minimap.png",
+    "display_name": "Your New Map",
+    "blurb": "One-line description.",
+}
+```
+
+Drop the minimap image into `data/minimaps/`. Done. Every tab picks it up automatically.
+
+### Adding a new event type
+
+Edit `src/config.py::EVENT_STYLES`:
+
+```python
+EVENT_STYLES["NewEventType"] = {
+    "color": "#123456",
+    "symbol": "star",
+    "size": 12,
+    "opacity": 1.0,
+    "category": "combat",  # or "loot", "movement", "environment"
+    "label": "Human-readable label",
+}
+```
+
+The event appears in filters, legends, and heatmap presets automatically.
+
+### Running tests
+
+There aren't any yet. Adding smoke tests for `world_to_pixel()` and `filter_events()` is the top v2 priority — see [`PRD.md`](./PRD.md).
+
+---
+
+## Troubleshooting
+
+**"streamlit: command not found"** on Windows with Microsoft Store Python
+→ Use `python -m streamlit run app.py` instead.
+
+**App boots but sidebar is empty / no maps show up**
+→ Check that `data/all_events.parquet` is present. If missing, the parquet didn't get committed to Git — check `.gitignore`.
+
+**Deployment fails on Streamlit Cloud with "ModuleNotFoundError"**
+→ Something's missing from `requirements.txt`. Add it, `git push`, wait for redeploy.
+
+**Coordinates look off — points spilling outside the minimap**
+→ The `MAP_CONFIG` origin/scale for that map is wrong. Verify against the game engine's world bounds.
+
+**Match Playback animation is jerky**
+→ On very old browsers, Plotly's client-side animation can lag. Chrome / Edge / Firefox on any machine from the last 5 years should be smooth.
+
+---
+
+## License
+
+Internal / assignment submission — no license attached. Contact the repo owner for reuse permissions.
+
+---
+
+## Credits
+
+- **Built by:** Assignment submission for LILA Games' Product Engineer role
+- **Data:** LILA BLACK production telemetry (Feb 10–14, 2026)
+- **Minimap images:** LILA Games
+- **Frameworks:** Streamlit, Plotly, pandas, PyArrow
