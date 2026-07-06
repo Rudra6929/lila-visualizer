@@ -286,12 +286,6 @@ There aren't any yet. Adding smoke tests for `world_to_pixel()` and `filter_even
 
 ---
 
-## License
-
-Internal / assignment submission — no license attached. Contact the repo owner for reuse permissions.
-
----
-
 ## Credits
 
 - **Built by:** Assignment submission for LILA Games' Product Engineer role
