@@ -1,11 +1,11 @@
 # LILA BLACK — Player Journey Visualizer
 
-# IMP Note:-On the free tier of Streamlit Community Cloud, apps go to sleep after a period of inactivity to save resources.
-# Here's what happens:
-  # inactive app → After some time with no visitors, the app goes to sleep.
-  # (click-on:yes get this backup when opening app link its it went to sleep) First visitor afterward → The app wakes up automatically, but it can take 10–60 seconds (sometimes longer if dependencies are large).
+ IMP Note:-On the free tier of Streamlit Community Cloud, apps go to sleep after a period of inactivity to save resources.
+Here's what happens:
+inactive app → After some time with no visitors, the app goes to sleep.
+(click-on:yes get this backup when opening app link its it went to sleep) First visitor afterward → The app wakes up automatically, but it can take 10–60 seconds (sometimes longer if dependencies are large).
   
-# A web-based tool for the LILA Games Level Design team to explore player behavior on the maps of **LILA BLACK**, an extraction shooter. Turns raw telemetry into three interactive views: **match playback**, **aggregate heatmaps**, and **per-player profiles**.
+A web-based tool for the LILA Games Level Design team to explore player behavior on the maps of **LILA BLACK**, an extraction shooter. Turns raw telemetry into three interactive views: **match playback**, **aggregate heatmaps**, and **per-player profiles**.
 
 > **Live app:** https://lila-visualizer-sk44ahuzqbbeogow5nfakd.streamlit.app/?map=AmbroseValley&date=All&mode=All+players
 
